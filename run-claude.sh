@@ -948,7 +948,6 @@ generate_dockerfile_content() {
     "git"
     "python3"
     "unzip"
-    "python3-pip"
     "sudo"
     "fzf"
     "zsh"
@@ -1010,6 +1009,10 @@ RUN ARCH=$(dpkg --print-architecture) && \
 ENV PATH=/usr/local/go/bin:$PATH
 ENV CGO_ENABLED=0
 
+# Install uv (fast Python package manager)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH=/root/.cargo/bin:$PATH
+
 # Install latest Neovim from GitHub releases
 RUN ARCH=$(dpkg --print-architecture) && \
 	if [ "$ARCH" = "amd64" ]; then NVIM_ARCH="x86_64"; else NVIM_ARCH="arm64"; fi && \
@@ -1055,6 +1058,10 @@ ENV PATH="/home/$USERNAME/.local/share/fnm:$PATH"
 SHELL ["/bin/bash", "-c"]
 RUN eval "$(fnm env)" && fnm install 22 && fnm default 22 && fnm use 22
 
+# Install uv for user
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/home/$USERNAME/.cargo/bin:$PATH"
+
 
 # Install LazyVim
 RUN git clone https://github.com/LazyVim/starter ~/.config/nvim \
@@ -1085,8 +1092,28 @@ RUN eval "$(fnm env)" && claude mcp add context7 \
 	https://mcp.context7.com/mcp
 
 RUN eval "$(fnm env)" && claude mcp add playwright \
-	--scope user \
+	--scope user -- \
 	npx @playwright/mcp@latest
+
+RUN eval "$(fnm env)" && claude mcp add sequential-thinking \
+	--scope user -- \
+	npx -y @modelcontextprotocol/server-sequential-thinking
+
+RUN eval "$(fnm env)" && claude mcp add filesystem \
+	--scope user -- \
+	npx -y @modelcontextprotocol/server-filesystem /home/${USERNAME}
+
+RUN eval "$(fnm env)" && claude mcp add fetch \
+	--scope user -- \
+	npx -y @kazuph/mcp-fetch
+
+RUN eval "$(fnm env)" && claude mcp add exa \
+	--scope user -- \
+	npx -y exa-mcp-server
+
+RUN eval "$(fnm env)" && claude mcp add zen \
+	--scope user -- \
+	uvx --from git+https://github.com/BeehiveInnovations/zen-mcp-server.git zen-mcp-server
 
 # ============================================================================
 # Stage 4: Final runtime image
@@ -1433,8 +1460,11 @@ handle_existing_container() {
       if [[ $# -gt 0 ]]; then
         # Start container and then execute command in it
         # Use timeout + stdin redirect to prevent WSL2 Docker hang on mount errors
+        # Disable errexit temporarily to capture exit code
+        set +e
         START_OUTPUT=$(timeout 10 docker start "$CONTAINER_NAME" </dev/null 2>&1)
         START_EXIT_CODE=$?
+        set -e
 
         # Check if start failed due to mount/bind-mount issues (WSL2 problem)
         if [[ $START_EXIT_CODE -ne 0 ]]; then
@@ -1473,15 +1503,15 @@ handle_existing_container() {
       else
         # Start container interactively
         # Use timeout + stdin redirect to prevent WSL2 Docker hang on mount errors
+        # Disable errexit temporarily to capture exit code
+        set +e
         START_OUTPUT=$(timeout 10 docker start -i "$CONTAINER_NAME" </dev/null 2>&1)
         START_EXIT_CODE=$?
+        set -e
 
         # Check if start failed due to mount/bind-mount issues (WSL2 problem)
         if [[ $START_EXIT_CODE -ne 0 ]]; then
-          echo "DEBUG: START_EXIT_CODE=$START_EXIT_CODE"
-          echo "DEBUG: START_OUTPUT=$START_OUTPUT"
           if [[ "$START_OUTPUT" =~ mount|bind-mounts ]]; then
-            echo "DEBUG: REGEX MATCHED!"
             echo -e "${YELLOW}Container failed to start due to stale mount paths (WSL2 issue).${NC}"
             echo -e "${YELLOW}Removing stale container and will create a fresh one...${NC}"
             docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1

@@ -960,6 +960,8 @@ generate_dockerfile_content() {
     "fd-find"
     "gpg"
     "git-delta"
+    "mc"
+    "far2l"
   )
 
   # Add extra packages to the list

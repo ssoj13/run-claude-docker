@@ -77,7 +77,7 @@ DANGEROUS_MODE=true
 BUILD_ONLY=false
 FORCE_REBUILD=false
 FORCE_PULL=false
-RECREATE_CONTAINER=false
+RECREATE_CONTAINER=true
 VERBOSE=false
 REMOVE_CONTAINERS=false
 FORCE_REMOVE_ALL_CONTAINERS=false
@@ -954,7 +954,6 @@ generate_dockerfile_content() {
     "zsh"
     "gh"
     "vim"
-    "neovim"
     "htop"
     "jq"
     "tree"
@@ -1011,9 +1010,20 @@ RUN ARCH=$(dpkg --print-architecture) && \
 ENV PATH=/usr/local/go/bin:$PATH
 ENV CGO_ENABLED=0
 
-# Create user
+# Install latest Neovim from GitHub releases
+RUN ARCH=$(dpkg --print-architecture) && \
+	if [ "$ARCH" = "amd64" ]; then NVIM_ARCH="x86_64"; else NVIM_ARCH="arm64"; fi && \
+	NVIM_VERSION=$(curl -s https://api.github.com/repos/neovim/neovim/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/') && \
+	wget -O nvim.tar.gz "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-linux-${NVIM_ARCH}.tar.gz" && \
+	tar -C /usr/local -xzf nvim.tar.gz && \
+	ln -s /usr/local/nvim-linux-${NVIM_ARCH}/bin/nvim /usr/local/bin/nvim && \
+	rm nvim.tar.gz
+
+# Create user with UID=1000 to match typical host user
+# First remove the default 'ubuntu' user if it exists
 ARG USERNAME=claude-user
-RUN useradd -m -s /bin/zsh ${USERNAME} \
+RUN (userdel -r ubuntu 2>/dev/null || true) && \
+	useradd -m -s /bin/zsh -u 1000 ${USERNAME} \
 	&& echo ${USERNAME} ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/${USERNAME} \
 	&& chmod 0440 /etc/sudoers.d/${USERNAME}
 
@@ -1356,7 +1366,10 @@ handle_existing_container() {
     if docker ps --format "table {{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
       echo -e "${MAGENTA}Container ${BRIGHT_CYAN}$CONTAINER_NAME${MAGENTA} is already running. Executing command in existing container...${NC}"
       # Build docker exec command with passthrough args and environment variables
-      EXEC_CMD="docker exec -it"
+      EXEC_CMD="docker exec"
+      if [[ "$INTERACTIVE" == "true" ]]; then
+        EXEC_CMD="$EXEC_CMD -it"
+      fi
       if [[ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]]; then
         for arg in "${PASSTHROUGH_ARGS[@]}"; do
           EXEC_CMD="$EXEC_CMD $arg"
@@ -1391,7 +1404,10 @@ handle_existing_container() {
       if [[ "$DRY_RUN" == "true" ]]; then
         if [[ $# -gt 0 ]]; then
           echo -e "${MAGENTA}Would execute: ${BRIGHT_CYAN}docker start $CONTAINER_NAME${NC}"
-          EXEC_CMD="docker exec -it"
+          EXEC_CMD="docker exec"
+          if [[ "$INTERACTIVE" == "true" ]]; then
+            EXEC_CMD="$EXEC_CMD -it"
+          fi
           if [[ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]]; then
             for arg in "${PASSTHROUGH_ARGS[@]}"; do
               EXEC_CMD="$EXEC_CMD $arg"
@@ -1416,9 +1432,30 @@ handle_existing_container() {
 
       if [[ $# -gt 0 ]]; then
         # Start container and then execute command in it
-        docker start "$CONTAINER_NAME" >/dev/null
+        # Use timeout + stdin redirect to prevent WSL2 Docker hang on mount errors
+        START_OUTPUT=$(timeout 10 docker start "$CONTAINER_NAME" </dev/null 2>&1)
+        START_EXIT_CODE=$?
+
+        # Check if start failed due to mount/bind-mount issues (WSL2 problem)
+        if [[ $START_EXIT_CODE -ne 0 ]]; then
+          if [[ "$START_OUTPUT" =~ mount|bind-mounts ]]; then
+            echo -e "${YELLOW}Container failed to start due to stale mount paths (WSL2 issue).${NC}"
+            echo -e "${YELLOW}Removing stale container and will create a fresh one...${NC}"
+            docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1
+            # Return to let the script create a new container
+            return 1
+          else
+            echo -e "${RED}Failed to start container:${NC}"
+            echo "$START_OUTPUT"
+            exit 1
+          fi
+        fi
+
         # Build docker exec command with passthrough args and environment variables
-        EXEC_CMD="docker exec -it"
+        EXEC_CMD="docker exec"
+        if [[ "$INTERACTIVE" == "true" ]]; then
+          EXEC_CMD="$EXEC_CMD -it"
+        fi
         if [[ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]]; then
           for arg in "${PASSTHROUGH_ARGS[@]}"; do
             EXEC_CMD="$EXEC_CMD $arg"
@@ -1435,7 +1472,31 @@ handle_existing_container() {
         exec $EXEC_CMD "$@"
       else
         # Start container interactively
-        exec docker start -i "$CONTAINER_NAME"
+        # Use timeout + stdin redirect to prevent WSL2 Docker hang on mount errors
+        START_OUTPUT=$(timeout 10 docker start -i "$CONTAINER_NAME" </dev/null 2>&1)
+        START_EXIT_CODE=$?
+
+        # Check if start failed due to mount/bind-mount issues (WSL2 problem)
+        if [[ $START_EXIT_CODE -ne 0 ]]; then
+          echo "DEBUG: START_EXIT_CODE=$START_EXIT_CODE"
+          echo "DEBUG: START_OUTPUT=$START_OUTPUT"
+          if [[ "$START_OUTPUT" =~ mount|bind-mounts ]]; then
+            echo "DEBUG: REGEX MATCHED!"
+            echo -e "${YELLOW}Container failed to start due to stale mount paths (WSL2 issue).${NC}"
+            echo -e "${YELLOW}Removing stale container and will create a fresh one...${NC}"
+            docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1
+            # Return to let the script create a new container
+            return 1
+          else
+            # Other error - show it and exit
+            echo -e "${RED}Failed to start container:${NC}"
+            echo "$START_OUTPUT"
+            exit $START_EXIT_CODE
+          fi
+        else
+          # Success - container ran and exited normally
+          exit 0
+        fi
       fi
     fi
   fi

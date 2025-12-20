@@ -972,6 +972,8 @@ generate_dockerfile_content() {
     "cmake"
     "gcc"
     "g++"
+    "pkg-config"
+    "libssl-dev"
   )
 
   # Add extra packages to the list
@@ -1084,9 +1086,11 @@ ENV PATH="/home/$USERNAME/.bun/bin:$PATH"
 
 # Install uv for user
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/home/$USERNAME/.cargo/bin:$PATH"
+ENV PATH="/home/$USERNAME/.local/bin:$PATH"
 
-# Setup Rust for user
+# Install Rust for user
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/home/$USERNAME/.cargo/bin:$PATH"
 RUN rustup toolchain install nightly --allow-downgrade
 
 
@@ -1108,8 +1112,7 @@ ENV PATH=/home/$USERNAME/.local/bin:$PATH
 # Install JS MCP servers globally via bun
 RUN bun install -g \
 	@playwright/mcp@latest \
-	@anthropic-ai/claude-code-mcp \
-	@anthropic-ai/mcp-server-sequential-thinking \
+	@modelcontextprotocol/server-sequential-thinking \
 	@modelcontextprotocol/server-github \
 	exa-mcp-server
 
@@ -1117,7 +1120,7 @@ RUN bun install -g \
 RUN bunx playwright install chromium --with-deps
 
 # Install Python MCP servers via uv tool
-RUN uv tool install zen-mcp-server
+RUN uv tool install git+https://github.com/BeehiveInnovations/zen-mcp-server.git
 
 # Install OpenAI CLI for Codex API access
 RUN uv tool install openai
@@ -1155,6 +1158,10 @@ RUN claude mcp add zen \
 # Install Rust-based MCP servers via cargo install
 RUN cargo install filesystem-mcp-rs memory-mcp-rs fetch-mcp-rs
 
+# Install Rust CLI tools (faster than apt versions)
+RUN cargo install ripgrep fd-find bat eza sd du-dust bottom zoxide git-delta
+RUN cargo install starship --locked
+
 # Add Rust-based MCP servers to Claude
 RUN claude mcp add filesystem \
 	--scope user -- \
@@ -1169,7 +1176,17 @@ RUN claude mcp add fetch \
 	/home/${USERNAME}/.cargo/bin/fetch-mcp
 
 # Install additional AI agents
-RUN bun install -g @githubnext/github-copilot-cli
+# Install AI coding assistants CLI tools
+RUN bun install -g \
+	@anthropic-ai/claude-code@latest \
+	@qwen-code/qwen-code@latest \
+	@google/gemini-cli@latest \
+	@openai/codex@latest \
+	@vibe-kit/grok-cli@latest \
+	@github/copilot@latest \
+	@charmland/crush@latest \
+	cerebras-code-mcp \
+	@githubnext/github-copilot-cli
 
 
 # ============================================================================
@@ -1281,6 +1298,33 @@ RUN chmod +x /usr/local/bin/claude-exec
 USER $USERNAME
 WORKDIR /home/$USERNAME
 
+# Configure starship prompt
+RUN mkdir -p ~/.config && cat > ~/.config/starship.toml << 'EOF'
+# Custom format with [run-claude] prefix
+format = """
+[\\[](red)[r](yellow)[u](green)[n](cyan)[-](blue)[c](magenta)[l](red)[a](yellow)[u](green)[d](cyan)[e](blue)[\\]](magenta) $all"""
+
+[character]
+success_symbol = "[>](bold green)"
+error_symbol = "[>](bold red)"
+
+[directory]
+truncation_length = 3
+truncate_to_repo = false
+
+[git_branch]
+symbol = " "
+
+[rust]
+symbol = " "
+
+[nodejs]
+symbol = " "
+
+[python]
+symbol = " "
+EOF
+
 # Configure zsh with theme, plugins, and aliases
 RUN cat > ~/.zshrc << 'EOF'
 export ZSH="$HOME/.oh-my-zsh"
@@ -1288,8 +1332,7 @@ ZSH_THEME="robbyrussell"
 plugins=(git zsh-autosuggestions zsh-syntax-highlighting)
 source $ZSH/oh-my-zsh.sh
 
-# Colorful prompt prefix
-export PS1="%F{red}[%F{yellow}r%F{green}u%F{cyan}n%F{blue}-%F{magenta}c%F{red}l%F{yellow}a%F{green}u%F{cyan}d%F{blue}e%F{magenta}]%f $PS1"
+# Prompt is handled by starship (configured below)
 
 # History configuration
 HISTFILE=~/.zsh_history
@@ -1315,15 +1358,39 @@ if [ "$CLAUDE_DANGEROUS_MODE" = "1" ] || [ "$ANTHROPIC_DANGEROUS_MODE" = "1" ]; 
 fi
 alias claude-safe="command claude"
 
-# General aliases
-alias ll="ls -la"
+# Editor aliases
 alias vim="nvim"
 alias vi="nvim"
 
-# AI tool aliases
+# AI coding assistants
+alias qwen="qwen-code"
+alias gemini="gemini"
+alias codex="codex"
+alias grok="grok-cli"
 alias copilot="github-copilot-cli"
 alias gh-copilot="gh copilot"
+alias crush="crush"
+alias cerebras="cerebras-code-mcp"
 alias openai="~/.local/bin/openai"
+
+# Modern CLI tool aliases (Rust versions)
+alias cat="bat --paging=never"
+alias ls="eza"
+alias ll="eza -la"
+alias tree="eza --tree"
+alias find="fd"
+alias grep="rg"
+alias sed="sd"
+alias du="dust"
+alias top="btm"
+alias diff="delta"
+
+# Zoxide (smart cd)
+eval "\$(zoxide init zsh)"
+alias cd="z"
+
+# Starship prompt
+eval "\$(starship init zsh)"
 
 # Git SSH configuration
 export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"

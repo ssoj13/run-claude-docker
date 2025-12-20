@@ -1084,6 +1084,9 @@ RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/home/$USERNAME/.bun/bin:$PATH"
 
+# Create node symlink (npm packages use #!/usr/bin/env node shebang)
+RUN ln -s ~/.bun/bin/bun ~/.bun/bin/node
+
 # Install uv for user
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/$USERNAME/.local/bin:$PATH"
@@ -1373,24 +1376,26 @@ alias crush="crush"
 alias cerebras="cerebras-code-mcp"
 alias openai="~/.local/bin/openai"
 
-# Modern CLI tool aliases (Rust versions)
-alias cat="bat --paging=never"
-alias ls="eza"
-alias ll="eza -la"
-alias tree="eza --tree"
-alias find="fd"
-alias grep="rg"
-alias sed="sd"
-alias du="dust"
-alias top="btm"
-alias diff="delta"
+# Modern CLI tool aliases (Rust versions - only if installed)
+command -v bat &> /dev/null && alias cat="bat --paging=never"
+command -v eza &> /dev/null && alias ls="eza" && alias ll="eza -la" && alias tree="eza --tree"
+command -v fd &> /dev/null && alias find="fd"
+command -v rg &> /dev/null && alias grep="rg"
+command -v sd &> /dev/null && alias sed="sd"
+command -v dust &> /dev/null && alias du="dust"
+command -v btm &> /dev/null && alias top="btm"
+command -v delta &> /dev/null && alias diff="delta"
 
 # Zoxide (smart cd)
-eval "\$(zoxide init zsh)"
-alias cd="z"
+if command -v zoxide &> /dev/null; then
+  eval "\$(zoxide init zsh)"
+  alias cd="z"
+fi
 
 # Starship prompt
-eval "\$(starship init zsh)"
+if command -v starship &> /dev/null; then
+  eval "\$(starship init zsh)"
+fi
 
 # Git SSH configuration
 export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"

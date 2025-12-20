@@ -93,6 +93,11 @@ EXTRA_VOLUMES=()
 FORWARDED_VARIABLES=(
   "ANTHROPIC_API_KEY"
   "OPENAI_API_KEY"
+  "GITHUB_TOKEN"
+  "QWEN_API_KEY"
+  "GEMINI_API_KEY"
+  "GOOGLE_API_KEY"
+  "EXA_API_KEY"
   "NUGET_API_KEY"
   "UNSPLASH_ACCESS_KEY"
   "ANTHROPIC_MODEL"
@@ -948,6 +953,8 @@ generate_dockerfile_content() {
     "git"
     "python3"
     "unzip"
+    "zip"
+    "tar"
     "sudo"
     "fzf"
     "zsh"
@@ -962,6 +969,9 @@ generate_dockerfile_content() {
     "git-delta"
     "mc"
     "far2l"
+    "cmake"
+    "gcc"
+    "g++"
   )
 
   # Add extra packages to the list
@@ -1024,6 +1034,20 @@ RUN ARCH=$(dpkg --print-architecture) && \
 	ln -s /usr/local/nvim-linux-${NVIM_ARCH}/bin/nvim /usr/local/bin/nvim && \
 	rm nvim.tar.gz
 
+# Install Rust and vcpkg
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH=/root/.cargo/bin:$PATH
+RUN rustup toolchain install nightly --allow-downgrade
+
+# Install vcpkg
+RUN git clone https://github.com/Microsoft/vcpkg.git /opt/vcpkg && \
+    cd /opt/vcpkg && \
+    ./bootstrap-vcpkg.sh -disableMetrics && \
+    ./vcpkg integrate install
+
+ENV VCPKG_ROOT=/opt/vcpkg
+ENV PATH=/opt/vcpkg:$PATH
+
 # Create user with UID=1000 to match typical host user
 # First remove the default 'ubuntu' user if it exists
 ARG USERNAME=claude-user
@@ -1054,15 +1078,16 @@ RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master
 	&& git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions \
 	&& git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
 
-# Setup fnm for user
-RUN curl -o- https://fnm.vercel.app/install | bash
-ENV PATH="/home/$USERNAME/.local/share/fnm:$PATH"
-SHELL ["/bin/bash", "-c"]
-RUN eval "$(fnm env)" && fnm install 22 && fnm default 22 && fnm use 22
+# Install Bun
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/home/$USERNAME/.bun/bin:$PATH"
 
 # Install uv for user
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/$USERNAME/.cargo/bin:$PATH"
+
+# Setup Rust for user
+RUN rustup toolchain install nightly --allow-downgrade
 
 
 # Install LazyVim
@@ -1077,45 +1102,75 @@ RUN nvim --headless "+Lazy! sync" +qa
 FROM user-env AS claude-mcp
 
 # Install Claude CLI
-RUN eval "$(fnm env)" && curl -fsSL https://claude.ai/install.sh | bash
+RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH=/home/$USERNAME/.local/bin:$PATH
 
-# Install Playwright MCP via npm
-RUN eval "$(fnm env)" && npm install -g @playwright/mcp@latest
+# Install JS MCP servers globally via bun
+RUN bun install -g \
+	@playwright/mcp@latest \
+	@anthropic-ai/claude-code-mcp \
+	@anthropic-ai/mcp-server-sequential-thinking \
+	@modelcontextprotocol/server-github \
+	exa-mcp-server
+
+# Install Playwright browsers for full functionality
+RUN bunx playwright install chromium --with-deps
+
+# Install Python MCP servers via uv tool
+RUN uv tool install zen-mcp-server
+
+# Install OpenAI CLI for Codex API access
+RUN uv tool install openai
 
 # Setup MCP servers using claude mcp add
-RUN eval "$(fnm env)" && claude mcp add unsplash \
+RUN claude mcp add unsplash \
 	--scope user \
 	/usr/local/bin/unsplash-mcp-server
 
-RUN eval "$(fnm env)" && claude mcp add context7 \
+RUN claude mcp add context7 \
 	--scope user \
-  --transport http \
+	--transport http \
 	https://mcp.context7.com/mcp
 
-RUN eval "$(fnm env)" && claude mcp add playwright \
+RUN claude mcp add playwright \
 	--scope user -- \
-	npx @playwright/mcp@latest
+	/home/${USERNAME}/.bun/bin/mcp-server-playwright
 
-RUN eval "$(fnm env)" && claude mcp add sequential-thinking \
+RUN claude mcp add sequential-thinking \
 	--scope user -- \
-	npx -y @modelcontextprotocol/server-sequential-thinking
+	/home/${USERNAME}/.bun/bin/mcp-server-sequential-thinking
 
-RUN eval "$(fnm env)" && claude mcp add filesystem \
+RUN claude mcp add exa \
 	--scope user -- \
-	npx -y @modelcontextprotocol/server-filesystem /home/${USERNAME}
+	/home/${USERNAME}/.bun/bin/exa-mcp-server
 
-RUN eval "$(fnm env)" && claude mcp add fetch \
+RUN claude mcp add github \
 	--scope user -- \
-	npx -y @kazuph/mcp-fetch
+	/home/${USERNAME}/.bun/bin/mcp-server-github
 
-RUN eval "$(fnm env)" && claude mcp add exa \
+RUN claude mcp add zen \
 	--scope user -- \
-	npx -y exa-mcp-server
+	/home/${USERNAME}/.local/bin/zen-mcp-server
 
-RUN eval "$(fnm env)" && claude mcp add zen \
+# Install Rust-based MCP servers via cargo install
+RUN cargo install filesystem-mcp-rs memory-mcp-rs fetch-mcp-rs
+
+# Add Rust-based MCP servers to Claude
+RUN claude mcp add filesystem \
 	--scope user -- \
-	uvx --from git+https://github.com/BeehiveInnovations/zen-mcp-server.git zen-mcp-server
+	/home/${USERNAME}/.cargo/bin/filesystem-mcp /home/${USERNAME}
+
+RUN claude mcp add memory \
+	--scope user -- \
+	/home/${USERNAME}/.cargo/bin/memory-mcp
+
+RUN claude mcp add fetch \
+	--scope user -- \
+	/home/${USERNAME}/.cargo/bin/fetch-mcp
+
+# Install additional AI agents
+RUN bun install -g @githubnext/github-copilot-cli
+
 
 # ============================================================================
 # Stage 4: Final runtime image
@@ -1241,8 +1296,18 @@ HISTFILE=~/.zsh_history
 HISTSIZE=50000
 SAVEHIST=50000
 
-# Node version manager
-eval "$(fnm env --use-on-cd --shell zsh)"
+# Bun runtime
+export BUN_INSTALL="/home/$USERNAME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+
+# Rust toolchain
+export RUSTUP_HOME="/home/$USERNAME/.rustup"
+export CARGO_HOME="/home/$USERNAME/.cargo"
+export PATH="$CARGO_HOME/bin:$PATH"
+
+# vcpkg
+export VCPKG_ROOT="/opt/vcpkg"
+export PATH="$VCPKG_ROOT:$PATH"
 
 # Claude aliases - conditional based on dangerous mode
 if [ "$CLAUDE_DANGEROUS_MODE" = "1" ] || [ "$ANTHROPIC_DANGEROUS_MODE" = "1" ]; then
@@ -1254,6 +1319,11 @@ alias claude-safe="command claude"
 alias ll="ls -la"
 alias vim="nvim"
 alias vi="nvim"
+
+# AI tool aliases
+alias copilot="github-copilot-cli"
+alias gh-copilot="gh copilot"
+alias openai="~/.local/bin/openai"
 
 # Git SSH configuration
 export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"

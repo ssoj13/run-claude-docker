@@ -1112,21 +1112,21 @@ FROM user-env AS claude-mcp
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH=/home/$USERNAME/.local/bin:$PATH
 
-# Install JS MCP servers globally via bun
+# Install JS MCP servers globally via bun (always latest)
 RUN bun install -g \
 	@playwright/mcp@latest \
-	@modelcontextprotocol/server-sequential-thinking \
-	@modelcontextprotocol/server-github \
-	exa-mcp-server
+	@modelcontextprotocol/server-sequential-thinking@latest \
+	@modelcontextprotocol/server-github@latest \
+	exa-mcp-server@latest
 
 # Install Playwright browsers for full functionality
 RUN bunx playwright install chromium --with-deps
 
-# Install Python MCP servers via uv tool
-RUN uv tool install git+https://github.com/BeehiveInnovations/zen-mcp-server.git
+# Install Python MCP servers via uv tool (always latest from git main branch)
+RUN uv tool install --upgrade git+https://github.com/BeehiveInnovations/zen-mcp-server.git
 
-# Install OpenAI CLI for Codex API access
-RUN uv tool install openai
+# Install OpenAI CLI for Codex API access (always latest from PyPI)
+RUN uv tool install --upgrade openai
 
 # Setup MCP servers using claude mcp add
 RUN claude mcp add unsplash \
@@ -1158,10 +1158,10 @@ RUN claude mcp add zen \
 	--scope user -- \
 	/home/${USERNAME}/.local/bin/zen-mcp-server
 
-# Install Rust-based MCP servers via cargo install
+# Install Rust-based MCP servers (always latest from crates.io)
 RUN cargo install filesystem-mcp-rs memory-mcp-rs fetch-mcp-rs
 
-# Install Rust CLI tools (faster than apt versions)
+# Install Rust CLI tools (always latest from crates.io)
 RUN cargo install ripgrep fd-find bat eza sd du-dust bottom zoxide git-delta
 RUN cargo install starship --locked
 
@@ -1178,8 +1178,7 @@ RUN claude mcp add fetch \
 	--scope user -- \
 	/home/${USERNAME}/.cargo/bin/fetch-mcp
 
-# Install additional AI agents
-# Install AI coding assistants CLI tools
+# Install AI coding assistants CLI tools (always latest)
 RUN bun install -g \
 	@anthropic-ai/claude-code@latest \
 	@qwen-code/qwen-code@latest \
@@ -1188,8 +1187,8 @@ RUN bun install -g \
 	@vibe-kit/grok-cli@latest \
 	@github/copilot@latest \
 	@charmland/crush@latest \
-	cerebras-code-mcp \
-	@githubnext/github-copilot-cli
+	cerebras-code-mcp@latest \
+	@githubnext/github-copilot-cli@latest
 
 
 # ============================================================================
@@ -1388,13 +1387,13 @@ command -v delta &> /dev/null && alias diff="delta"
 
 # Zoxide (smart cd)
 if command -v zoxide &> /dev/null; then
-  eval "\$(zoxide init zsh)"
+  eval "$(zoxide init zsh)"
   alias cd="z"
 fi
 
 # Starship prompt
 if command -v starship &> /dev/null; then
-  eval "\$(starship init zsh)"
+  eval "$(starship init zsh)"
 fi
 
 # Git SSH configuration

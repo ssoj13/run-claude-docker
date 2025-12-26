@@ -117,6 +117,33 @@ NC='\033[0m' # No Color
 # Check for required tools before proceeding
 check_required_tools
 
+# Work around WSL + Docker Desktop credential helper path issues.
+ensure_docker_creds() {
+  local config_dir="${DOCKER_CONFIG:-$HOME/.docker}"
+  local config_file="$config_dir/config.json"
+
+  if [[ ! -f "$config_file" ]]; then
+    return
+  fi
+
+  local creds_store
+  creds_store="$(jq -r '.credsStore // empty' "$config_file" 2>/dev/null || true)"
+  if [[ -z "$creds_store" ]]; then
+    return
+  fi
+
+  if ! command -v docker-credential-desktop.exe &>/dev/null && \
+     ! command -v docker-credential-desktop &>/dev/null; then
+    local temp_config
+    temp_config="$(mktemp -d)"
+    jq 'del(.credsStore)' "$config_file" > "$temp_config/config.json"
+    export DOCKER_CONFIG="$temp_config"
+    echo -e "${YELLOW}Warning: docker-credential-desktop helper not found in WSL PATH; using temp Docker config without credsStore for this run.${NC}" >&2
+  fi
+}
+
+ensure_docker_creds
+
 # Generate -e flags for forwarded environment variables
 generate_forwarded_variables() {
   local env_flags=""
@@ -1181,6 +1208,7 @@ RUN claude mcp add fetch \
 # Install AI coding assistants CLI tools (always latest)
 RUN bun install -g \
 	@anthropic-ai/claude-code@latest \
+	@opentelemetry/resources@latest \
 	@qwen-code/qwen-code@latest \
 	@google/gemini-cli@latest \
 	@openai/codex@latest \

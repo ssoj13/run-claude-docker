@@ -978,6 +978,8 @@ generate_dockerfile_content() {
     "curl"
     "wget"
     "git"
+    "nodejs"
+    "npm"
     "python3"
     "unzip"
     "zip"
@@ -1210,13 +1212,15 @@ RUN bun install -g \
 	@anthropic-ai/claude-code@latest \
 	@opentelemetry/resources@latest \
 	@qwen-code/qwen-code@latest \
-	@google/gemini-cli@latest \
 	@openai/codex@latest \
 	@vibe-kit/grok-cli@latest \
 	@github/copilot@latest \
 	@charmland/crush@latest \
 	cerebras-code-mcp@latest \
 	@githubnext/github-copilot-cli@latest
+
+# Install Gemini CLI via npm; keep Node.js around because bun+gemini hits React/Ink conflicts
+RUN npm install -g @google/gemini-cli@latest
 
 
 # ============================================================================

@@ -1371,16 +1371,29 @@ SAVEHIST=50000
 
 # Bun runtime
 export BUN_INSTALL="/home/$USERNAME/.bun"
-export PATH="$BUN_INSTALL/bin:$PATH"
 
 # Rust toolchain
 export RUSTUP_HOME="/home/$USERNAME/.rustup"
 export CARGO_HOME="/home/$USERNAME/.cargo"
-export PATH="$CARGO_HOME/bin:$PATH"
 
 # vcpkg
 export VCPKG_ROOT="/opt/vcpkg"
-export PATH="$VCPKG_ROOT:$PATH"
+
+# Add local paths only if they exist
+add_path_if_exists() {
+  if [ -d "$1" ]; then
+    case ":$PATH:" in
+      *":$1:"*) echo "PATH: exists (already set) -> $1" ;;
+      *) PATH="$1:$PATH"; echo "PATH: added -> $1" ;;
+    esac
+  else
+    echo "PATH: missing -> $1"
+  fi
+}
+add_path_if_exists "$BUN_INSTALL/bin"
+add_path_if_exists "$CARGO_HOME/bin"
+add_path_if_exists "/home/$USERNAME/.local/bin"
+add_path_if_exists "$VCPKG_ROOT"
 
 # Claude aliases - conditional based on dangerous mode
 if [ "$CLAUDE_DANGEROUS_MODE" = "1" ] || [ "$ANTHROPIC_DANGEROUS_MODE" = "1" ]; then
@@ -1393,7 +1406,6 @@ alias vim="nvim"
 alias vi="nvim"
 
 # AI coding assistants
-alias qwen="qwen-code"
 alias gemini="gemini"
 alias codex="codex"
 alias grok="grok-cli"
@@ -1423,6 +1435,68 @@ fi
 if command -v starship &> /dev/null; then
   eval "$(starship init zsh)"
 fi
+
+# Git SSH configuration
+export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+EOF
+
+# Configure bash with matching PATH and aliases
+RUN cat > ~/.bashrc << 'EOF'
+# Bun runtime
+export BUN_INSTALL="/home/$USERNAME/.bun"
+
+# Rust toolchain
+export RUSTUP_HOME="/home/$USERNAME/.rustup"
+export CARGO_HOME="/home/$USERNAME/.cargo"
+
+# vcpkg
+export VCPKG_ROOT="/opt/vcpkg"
+
+# Add local paths only if they exist
+add_path_if_exists() {
+  if [ -d "$1" ]; then
+    case ":$PATH:" in
+      *":$1:"*) echo "PATH: exists (already set) -> $1" ;;
+      *) PATH="$1:$PATH"; echo "PATH: added -> $1" ;;
+    esac
+  else
+    echo "PATH: missing -> $1"
+  fi
+}
+add_path_if_exists "$BUN_INSTALL/bin"
+add_path_if_exists "$CARGO_HOME/bin"
+add_path_if_exists "/home/$USERNAME/.local/bin"
+add_path_if_exists "$VCPKG_ROOT"
+
+# Claude aliases - conditional based on dangerous mode
+if [ "$CLAUDE_DANGEROUS_MODE" = "1" ] || [ "$ANTHROPIC_DANGEROUS_MODE" = "1" ]; then
+	alias claude="claude --dangerously-skip-permissions"
+fi
+alias claude-safe="command claude"
+
+# Editor aliases
+alias vim="nvim"
+alias vi="nvim"
+
+# AI coding assistants
+alias gemini="gemini"
+alias codex="codex"
+alias grok="grok-cli"
+alias copilot="github-copilot-cli"
+alias gh-copilot="gh copilot"
+alias crush="crush"
+alias cerebras="cerebras-code-mcp"
+alias openai="~/.local/bin/openai"
+
+# Modern CLI tool aliases (Rust versions - only if installed)
+command -v bat &> /dev/null && alias cat="bat --paging=never"
+command -v eza &> /dev/null && alias ls="eza" && alias ll="eza -la" && alias tree="eza --tree"
+command -v fd &> /dev/null && alias find="fd"
+command -v rg &> /dev/null && alias grep="rg"
+command -v sd &> /dev/null && alias sed="sd"
+command -v dust &> /dev/null && alias du="dust"
+command -v btm &> /dev/null && alias top="btm"
+command -v delta &> /dev/null && alias diff="delta"
 
 # Git SSH configuration
 export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
